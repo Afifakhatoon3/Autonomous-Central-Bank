@@ -42,6 +42,11 @@ Any ──► EMERGENCY_PAUSED ──► OBSERVING
 Note: CONSENSUS_FAILED covers both REJECTED and INCONCLUSIVE per-policy
 outcomes. The reason is preserved in the policy history.
 
+Note: The global CONSENSUS_PENDING state corresponds to the per-policy
+EVALUATING state. The names differ because the global state tracks the
+contract lifecycle, while the per-policy state tracks an individual
+proposal.
+
 ## Per-Policy State
 
 Each policy proposal has its own state, tracked in a history array.
@@ -117,6 +122,7 @@ system.
 | Case | Behavior |
 |---|---|
 | pause() called while a policy is EVALUATING | Evaluation continues. Policy can still execute if ACCEPTED, but no new proposals are accepted until unpause. |
+| pause() called during CONSENSUS_REACHED but before execute_policy() | Policy is held. After unpause(), execute_policy() can be called on the same proposal. |
 | propose_policy() called during cooldown | Rejected with COOLDOWN_ACTIVE error. |
 | Same policy proposed twice | Allowed only if the previous instance is in REJECTED or INCONCLUSIVE state. |
 | Same policy proposed after EXECUTED | Rejected with ALREADY_EXECUTED error. |
