@@ -6,43 +6,26 @@ The Autonomous Central Bank (ACB) operates as a continuous loop. It
 observes real-world data, proposes policy changes, reaches consensus,
 and executes. No human vote at any step.
 
-## States
+## Global Lifecycle State
 
-The contract has one global lifecycle state and one per-policy state.
+INIT ──► OBSERVING ◄──────────────────────────┐
+           │                                  │
+           ▼                                  │
+      POLICY_PROPOSED                         │
+           │                                  │
+           ▼                                  │
+      CONSENSUS_PENDING                       │
+           │                                  │
+     ┌─────┴─────┐                            │
+     ▼           ▼                            │
+CONSENSUS_   CONSENSUS_                       │
+REACHED      FAILED                           │
+     │           │                            │
+     ▼           │                            │
+POLICY_          │                            │
+EXECUTED ────────┴────────────────────────────┘
 
-### Global Lifecycle State
-
-```
-
-INIT
-
-|
-v
-OBSERVING <-----------------------+
-
-|                               |
-v                               |
-POLICY_PROPOSED                   |
-
-|                               |
-v                               |
-CONSENSUS_PENDING                 |
-
-|                               |
-+--> CONSENSUS_REACHED          |
-
-|         |                     |
-
-|         v                     |
-|    POLICY_EXECUTED -----------+
-
-|                               |
-+--> CONSENSUS_FAILED ----------+
-
-|
-+--> EMERGENCY_PAUSED
-
-```
+Any ──► EMERGENCY_PAUSED ──► OBSERVING
 
 
 | State | Meaning |
@@ -56,17 +39,17 @@ CONSENSUS_PENDING                 |
 | CONSENSUS_FAILED | Validators disagreed or confidence too low. Returns to OBSERVING. |
 | EMERGENCY_PAUSED | Admin halted the contract. No proposals accepted. |
 
-### Per-Policy State
+Note: CONSENSUS_FAILED covers both REJECTED and INCONCLUSIVE per-policy
+outcomes. The reason is preserved in the policy history.
+
+## Per-Policy State
 
 Each policy proposal has its own state, tracked in a history array.
 
-```
+PROPOSED ──► EVALUATING ──┬──► ACCEPTED ──► EXECUTED
+                          ├──► REJECTED
+                          └──► INCONCLUSIVE
 
-PROPOSED --> EVALUATING --> ACCEPTED --> EXECUTED
---> REJECTED
---> INCONCLUSIVE
-
-```
 
 | State | Meaning |
 |---|---|
@@ -77,7 +60,7 @@ PROPOSED --> EVALUATING --> ACCEPTED --> EXECUTED
 | INCONCLUSIVE | Validators could not agree. |
 | EXECUTED | Accepted policy written to live state. |
 
-## Transitions
+## Global Transitions
 
 | From | To | Trigger | Who |
 |---|---|---|---|
@@ -92,14 +75,26 @@ PROPOSED --> EVALUATING --> ACCEPTED --> EXECUTED
 | Any | EMERGENCY_PAUSED | pause() called | Admin only |
 | EMERGENCY_PAUSED | OBSERVING | unpause() called | Admin only |
 
+## Per-Policy Transitions
+
+| From | To | Trigger |
+|---|---|---|
+| PROPOSED | EVALUATING | evaluate_policy() called |
+| EVALUATING | ACCEPTED | Consensus returns ACCEPTED |
+| EVALUATING | REJECTED | Consensus returns REJECTED |
+| EVALUATING | INCONCLUSIVE | Consensus cannot agree |
+| ACCEPTED | EXECUTED | execute_policy() called |
+
 ## Guards and Constraints
 
-- **Cooldown:** After a policy executes or fails, a minimum number of
-  blocks must pass before the next propose_policy() call.
+- **Cooldown:** After a policy executes or fails, a minimum cooldown
+  period (in seconds) must pass before the next propose_policy() call.
 - **Policy bounds:** Every proposed policy must fall within predefined
   safety ranges. Out-of-range proposals are rejected before consensus.
 - **Proposal bond:** Each propose_policy() call requires a small bond.
-  If the proposal is rejected as spam, the bond is slashed.
+  If the proposal is rejected as spam, the bond is slashed. For the
+  testnet MVP, the bond is simulated in GEN; production bond design
+  is in the roadmap.
 - **Admin scope:** The admin can only pause and unpause. The admin
   cannot propose, reject, or modify policy decisions.
 
@@ -117,6 +112,16 @@ Any proposal outside these bounds is rejected immediately without
 consensus. This prevents a single bad LLM output from breaking the
 system.
 
+## Edge Cases
+
+| Case | Behavior |
+|---|---|
+| pause() called while a policy is EVALUATING | Evaluation continues. Policy can still execute if ACCEPTED, but no new proposals are accepted until unpause. |
+| propose_policy() called during cooldown | Rejected with COOLDOWN_ACTIVE error. |
+| Same policy proposed twice | Allowed only if the previous instance is in REJECTED or INCONCLUSIVE state. |
+| Same policy proposed after EXECUTED | Rejected with ALREADY_EXECUTED error. |
+| unpause() called when already OBSERVING | No-op, emits warning event. |
+
 ## What This State Machine Prevents
 
 | Risk | How it is prevented |
@@ -127,6 +132,4 @@ system.
 | Admin takeover | Admin can only pause, not decide |
 | Silent policy change | Every transition emits an event and is stored |
 | Infinite loop of proposals | Cooldown between cycles |
-```
-
----
+| Double execution of same policy | ALREADY_EXECUTED guard |
