@@ -77,18 +77,18 @@ pytest tests/direct/ -v
 
 · fetch_data(sources) - Fetch and summarize URLs
 
-Proposal
+## Proposal
 
 · propose_policy(observation_id, direction, bond) - Create proposal
 · cancel_proposal(proposal_id) - Cancel before evaluation
 
-Consensus
+## Consensus
 
 · evaluate_policy(proposal_id) - Trigger AI consensus
 · execute_policy(proposal_id) - Write accepted policy
 · finalize_failed(proposal_id) - Clean up failed proposal
 
-Views
+## Views
 
 · get_global_state() - Current lifecycle state
 · get_active_policy() - Live policy
@@ -98,7 +98,7 @@ Views
 · get_observation(observation_id) - Specific observation
 · get_latest_observation() - Most recent observation
 · get_bounds() - Safety bounds
-· get_bond(address) — Bond balance for an address
+· get_bond(address) - Bond balance for an address
 
 ## Direction Format
 
