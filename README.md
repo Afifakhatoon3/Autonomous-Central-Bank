@@ -151,12 +151,12 @@ All transactions verified on GenLayer Studionet Explorer.
 
 ## Documentation
 
-- [01 — Positioning](docs/01-positioning.md)
-- [02 — State Machine](docs/02-state-machine.md)
-- [03 — Contract Methods](docs/03-contract-methods.md)
-- [04 — Data Flow](docs/04-data-flow.md)
-- [05 — Demo Scenarios](docs/05-demo-scenarios.md)
-- [06 — Weaknesses and Fixes](docs/06-weaknesses-and-fixes.md)
+- [01 - Positioning](docs/01-positioning.md)
+- [02 - State Machine](docs/02-state-machine.md)
+- [03 - Contract Methods](docs/03-contract-methods.md)
+- [04 - Data Flow](docs/04-data-flow.md)
+- [05 - Demo Scenarios](docs/05-demo-scenarios.md)
+- [06 - Weaknesses and Fixes](docs/06-weaknesses-and-fixes.md)
 
 ## Limitations
 
@@ -170,4 +170,4 @@ for the complete audit of 27 known weaknesses.
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+MIT - see [LICENSE](LICENSE)
