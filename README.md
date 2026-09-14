@@ -2,19 +2,18 @@
 
 ## What This Is
 
-An autonomous monetary policy engine built on GenLayer. It reads real-world data, proposes policy changes, and executes them through AI consensus — without any human vote.
+An autonomous monetary policy engine built on GenLayer. It reads real-world data, proposes policy changes, and executes them through AI consensus - without any human vote.
 
 **This is a policy engine, not a stablecoin issuer.**
 
 ## Track
 
-GenLayer Agent Tank - Autonomous Protocols
+GenLayer Agent Tank — Autonomous Protocols
 
 ## Live Deployment
 
 - Network: GenLayer Studionet
 - Contract address: `0x6bB1737270A9feBb70A0Bcd05a82D0C9b213A4bf`
-- Deploy TX: `0x4f06756b0bcf1dddabe1856ff5455e4b0b38c279f3dcd47979d84680c79d9677`
 - Deployed: Sep 14, 2026
 
 ### Verified On-Chain
@@ -78,12 +77,12 @@ pytest tests/direct/ -v
 
 · fetch_data(sources) - Fetch and summarize URLs
 
-## Proposal
+Proposal
 
-· propose_policy(observation_id, direction, bond) — Create proposal
-· cancel_proposal(proposal_id) — Cancel before evaluation
+· propose_policy(observation_id, direction, bond) - Create proposal
+· cancel_proposal(proposal_id) - Cancel before evaluation
 
-## Consensus
+Consensus
 
 · evaluate_policy(proposal_id) - Trigger AI consensus
 · execute_policy(proposal_id) - Write accepted policy
@@ -99,7 +98,7 @@ Views
 · get_observation(observation_id) - Specific observation
 · get_latest_observation() - Most recent observation
 · get_bounds() - Safety bounds
-· get_bond(address) - Bond balance for an address
+· get_bond(address) — Bond balance for an address
 
 ## Direction Format
 
@@ -132,19 +131,21 @@ The contract classifies economic signals and matches them against the proposed d
 
 ## Verified Transactions
 
-Action TX Hash
-Deploy 0x4f06756b0bcf1dddabe1856ff5455e4b0b38c279f3dcd47979d84680c79d9677
-observe 0x7037a5f0709f3f132e70c1866341119b876540098728dac742683ffcd414438b
-fetch_data #1 0xda6c077ead17be479d6541ccd28b2e88ebbe89a016bb12339bf75e01b9ac8c82
-propose #1 0xa5367f45b00db54bea1530e83874087fd128d1fc4e851243a0f18294bea72c7d
-evaluate #1 → ACCEPTED 0x3d2b22bb2ffbe165c715b39d9a60945be2809075bfde640bd1801710b41e9251
-execute #1 0x7e1499a9563494abb3f83bb9893892746a4ae57bb75b243a1cb2fe7b8e98a9ee
-fetch_data #2 0x94641338ef2238473760b15fb4c5a8ac04021f4b1287237cbcef1c3d8ce0febd
-propose #2 0x40f2b0c0f4ce5847d956a07f72c39d304441c3f06f596dd31ea6a454b68dcc32
-evaluate #2 → REJECTED 0xcfd05017296a3b2cd47043b4d6caeaf5a089aaeba76c0ed1f9354b590504711c
-finalize_failed #2 0x65f47f10e24e44bb3470e9aa2a2d94d967766fa3f071fefbc7537bf57e19571b
-pause 0x4c0b82e31e1a010a582b5f8c7522c2fa066761547c649189c953bf5a99cc5c50
-unpause 0x0416cf72c1f440debbcd811eeb56a962d4b21ff66f84b81bafc38f4c8838f7e4
+All transactions verified on GenLayer Studionet Explorer.
+
+# Action Result Transaction
+1 Deploy contract SUCCESS 0x4f0675...d9677
+2 observe() SUCCESS 0x7037a5...4438b
+3 fetch_data() #1 SUCCESS 0xda6c07...c8c82
+4 propose_policy() #1 (TIGHTENING) SUCCESS 0xa5367f...a72c7d
+5 evaluate_policy() #1 ACCEPTED 0x3d2b22...41e9251
+6 execute_policy() #1 SUCCESS 0x7e1499...8a9ee
+7 fetch_data() #2 SUCCESS 0x946413...ce0febd
+8 propose_policy() #2 (EASING) SUCCESS 0x40f2b0...68dcc32
+9 evaluate_policy() #2 REJECTED 0xcfd050...04711c
+10 finalize_failed() #2 SUCCESS 0x65f47f...571b
+11 pause() SUCCESS 0x4c0b82...cc5c50
+12 unpause() SUCCESS 0x0416cf...38f7e4
 
 ## Limitations
 
@@ -155,7 +156,7 @@ unpause 0x0416cf72c1f440debbcd811eeb56a962d4b21ff66f84b81bafc38f4c8838f7e4
 
 See docs/06-weaknesses-and-fixes.md for the full audit.
 
-License
+## License
 
 MIT
 
