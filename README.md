@@ -109,9 +109,9 @@ pytest tests/direct/ -v
 
 - get_latest_observation() - Most recent observation
 
-. get_bounds() - Safety bounds
+- get_bounds() - Safety bounds
 
-. get_bond(address) - Bond balance for an address
+- get_bond(address) - Bond balance for an address
 
 ## Direction Format
 
@@ -127,20 +127,29 @@ Values are in milli-percent. 2.5 means 2.5%.
 
 The contract classifies economic signals and matches them against the proposed direction:
 
-. HAWKISH signal (inflation rising, rate hikes) + TIGHTENING proposal = ACCEPTED
-. DOVISH signal (inflation falling, recession risk) + EASING proposal = ACCEPTED
-. HAWKISH + EASING = REJECTED
-. DOVISH + TIGHTENING = REJECTED
-. NEUTRAL signal = INCONCLUSIVE
+- HAWKISH signal (inflation rising, rate hikes) + TIGHTENING proposal = ACCEPTED
+
+- DOVISH signal (inflation falling, recession risk) + EASING proposal = ACCEPTED
+
+- HAWKISH + EASING = REJECTED
+
+- DOVISH + TIGHTENING = REJECTED
+
+- NEUTRAL signal = INCONCLUSIVE
 
 ## Documentation
 
-· docs/01-positioning.md - Problem and solution
-· docs/02-state-machine.md - States and transitions
-· docs/03-contract-methods.md - Full API reference
-· docs/04-data-flow.md - How data moves
-· docs/05-demo-scenarios.md - Demo walkthrough
-· docs/06-weaknesses-and-fixes.md - Honest audit
+- docs/01-positioning.md - Problem and solution
+
+- docs/02-state-machine.md - States and transitions
+
+- docs/03-contract-methods.md - Full API reference
+
+- docs/04-data-flow.md - How data moves
+
+- docs/05-demo-scenarios.md - Demo walkthrough
+
+- docs/06-weaknesses-and-fixes.md - Honest audit
 
 ## Verified Transactions
 
@@ -162,10 +171,10 @@ All transactions verified on GenLayer Studionet Explorer.
 
 ## Limitations
 
-· No real money movement (simulated bond only)
-· Studionet only (no mainnet)
-· No upgrade path (MVP)
-· Some news sites block automated fetching (Reuters, Bloomberg)
+- No real money movement (simulated bond only)
+- Studionet only (no mainnet)
+- No upgrade path (MVP)
+- Some news sites block automated fetching (Reuters, Bloomberg)
 
 See docs/06-weaknesses-and-fixes.md for the full audit.
 
