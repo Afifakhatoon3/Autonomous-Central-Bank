@@ -52,7 +52,6 @@ class HistoryEntry:
 
 class AutonomousCentralBank(gl.Contract):
     admin: Address
-
     global_state: str
     state_before_pause: str
 
@@ -66,10 +65,13 @@ class AutonomousCentralBank(gl.Contract):
     base_min_bond: u256
     cooldown_seconds: u256
     freshness_seconds: u256
+    enforce_allowlist: bool
 
-    observations: TreeMap[u256, Observation]
-    proposals: TreeMap[u256, Proposal]
-    history: TreeMap[u256, HistoryEntry]
+    upgraders: gl.storage.Vec[Address]
+    trusted_domains_hash: gl.storage.Map[u256, bool]
+    observations: gl.storage.Map[u256, Observation]
+    proposals: gl.storage.Map[u256, Proposal]
+    history: gl.storage.Map[u256, HistoryEntry]
 
     observation_counter: u256
     proposal_counter: u256
@@ -93,9 +95,21 @@ class AutonomousCentralBank(gl.Contract):
         self.supply_min = i256(-5000)
         self.supply_max = i256(5000)
 
-        self.base_min_bond = u256(10**16)
+        self.base_min_bond = u256(10 ** 16)
         self.cooldown_seconds = u256(10)
         self.freshness_seconds = u256(3600)
+        self.enforce_allowlist = False
+
+        self.upgraders = gl.storage.Vec[Address]()
+        self.trusted_domains_hash = gl.storage.Map[u256, bool]()
+        self.observations = gl.storage.Map[u256, Observation]()
+        self.proposals = gl.storage.Map[u256, Proposal]()
+        self.history = gl.storage.Map[u256, HistoryEntry]()
+
+        self.upgraders.append(self.admin)
+
+        wiki_hash = gl.crypto.keccak256("en.wikipedia.org".encode())
+        self.trusted_domains_hash[wiki_hash] = True
 
         self.observation_counter = u256(0)
         self.proposal_counter = u256(0)
@@ -124,6 +138,16 @@ class AutonomousCentralBank(gl.Contract):
             for c in url:
                 h = (h * 31 + ord(c)) & 0xFFFFFFFF
         return format(h, "08x")
+
+    def _extract_domain(self, url: str) -> str:
+        rest = url[len("https://"):]
+        slash = rest.find("/")
+        if slash >= 0:
+            rest = rest[:slash]
+        return rest
+
+    def _domain_hash(self, domain: str) -> u256:
+        return gl.crypto.keccak256(domain.encode())
 
     def _parse_milli(self, value_str: str) -> int:
         value_str = value_str.strip()
@@ -188,540 +212,577 @@ class AutonomousCentralBank(gl.Contract):
             ):
                 raise gl.vm.UserError("OUT_OF_BOUNDS")
 
+@gl.public.write
+def observe(self) -> None:
+    if self.global_state != "INIT":
+        raise gl.vm.UserError("INVALID_STATE")
 
-    @gl.public.write
-    def observe(self) -> None:
-        if self.global_state != "INIT":
-            raise gl.vm.UserError("INVALID_STATE")
+    self.global_state = "OBSERVING"
 
-        self.global_state = "OBSERVING"
+@gl.public.write
+def pause(self) -> None:
+    self._require_admin()
 
+    if self.global_state == "EMERGENCY_PAUSED":
+        raise gl.vm.UserError("ALREADY_PAUSED")
 
-    @gl.public.write
-    def pause(self) -> None:
-        self._require_admin()
+    self.state_before_pause = self.global_state
+    self.global_state = "EMERGENCY_PAUSED"
 
-        if self.global_state == "EMERGENCY_PAUSED":
-            raise gl.vm.UserError("ALREADY_PAUSED")
+@gl.public.write
+def unpause(self) -> None:
+    self._require_admin()
 
-        self.state_before_pause = self.global_state
-        self.global_state = "EMERGENCY_PAUSED"
+    if self.global_state != "EMERGENCY_PAUSED":
+        raise gl.vm.UserError("NOT_PAUSED")
 
+    self.global_state = self.state_before_pause
+    self.state_before_pause = ""
 
-    @gl.public.write
-    def unpause(self) -> None:
-        self._require_admin()
+@gl.public.write
+def set_base_min_bond(self, new_base_wei: u256) -> None:
+    self._require_admin()
 
-        if self.global_state != "EMERGENCY_PAUSED":
-            raise gl.vm.UserError("NOT_PAUSED")
+    if int(new_base_wei) == 0:
+        raise gl.vm.UserError("INVALID_BOND")
 
-        self.global_state = self.state_before_pause
-        self.state_before_pause = ""
+    self.base_min_bond = new_base_wei
 
+@gl.public.write
+def add_trusted_domain(self, domain: str) -> None:
+    self._require_admin()
+    dh = self._domain_hash(domain)
+    self.trusted_domains_hash[dh] = True
 
-    @gl.public.write
-    def set_base_min_bond(self, new_base_wei: u256) -> None:
-        self._require_admin()
+@gl.public.write
+def remove_trusted_domain(self, domain: str) -> None:
+    self._require_admin()
+    dh = self._domain_hash(domain)
+    self.trusted_domains_hash[dh] = False
 
-        if int(new_base_wei) == 0:
-            raise gl.vm.UserError("INVALID_BOND")
+@gl.public.write
+def set_enforce_allowlist(self, enforce: bool) -> None:
+    self._require_admin()
+    self.enforce_allowlist = enforce
 
-        self.base_min_bond = new_base_wei
+@gl.public.write
+def add_upgrader(self, new_upgrader: Address) -> None:
+    self._require_admin()
+    self.upgraders.append(new_upgrader)
 
+@gl.public.write
+def upgrade_contract_code(self, new_bytecode_b64: str) -> None:
+    is_authorized = False
+    for i in range(len(self.upgraders)):
+        if self.upgraders[i] == gl.message.sender_address:
+            is_authorized = True
+            break
 
-    @gl.public.write
-    def fetch_data(self, sources: str) -> u256:
-        if self.global_state in ("INIT", "EMERGENCY_PAUSED"):
-            raise gl.vm.UserError("INVALID_STATE")
+    if not is_authorized:
+        raise gl.vm.UserError("NOT_UPGRADER")
 
-        urls = json.loads(sources)
+    gl.vm.upgrade_code(new_bytecode_b64)
 
-        if not isinstance(urls, list) or len(urls) == 0:
+@gl.public.write
+def fetch_data(self, sources: str) -> u256:
+    if self.global_state in ("INIT", "EMERGENCY_PAUSED"):
+        raise gl.vm.UserError("INVALID_STATE")
+
+    urls = json.loads(sources)
+
+    if not isinstance(urls, list) or len(urls) == 0:
+        raise gl.vm.UserError("INVALID_SOURCES")
+
+    for url in urls:
+        if not isinstance(url, str) or not url.startswith("https://"):
             raise gl.vm.UserError("INVALID_SOURCES")
 
+    if self.enforce_allowlist:
         for url in urls:
-            if not isinstance(url, str) or not url.startswith("https://"):
-                raise gl.vm.UserError("INVALID_SOURCES")
+            domain = self._extract_domain(url)
+            dh = self._domain_hash(domain)
+            if not self.trusted_domains_hash[dh]:
+                raise gl.vm.UserError("DOMAIN_NOT_TRUSTED")
 
-        def fetch_and_summarize() -> str:
-            all_text = ""
+    def fetch_and_summarize() -> str:
+        all_text = ""
 
-            for url in urls:
-                try:
-                    text = gl.nondet.web.render(url, mode="text")
-                    all_text += (
-                        f"\n\n--- Source: {url} ---\n"
-                        f"{text[:3000]}"
-                    )
-                except Exception:
-                    pass
+        for url in urls:
+            try:
+                text = gl.nondet.web.render(url, mode="text")
+                all_text += (
+                    f"\n\n--- Source: {url} ---\n"
+                    f"{text[:3000]}"
+                )
+            except Exception:
+                pass
 
-            if not all_text.strip():
-                return ""
-
-            task = (
-                "Summarize the following sources in 3-5 sentences. "
-                "Focus on economic signals relevant to monetary policy. "
-                "If the sources describe inflation rising, prices increasing, "
-                "or central banks tightening, emphasize that. "
-                "If the sources describe inflation falling, recession risk, "
-                "or central banks easing, emphasize that.\n\n"
-                "CRITICAL OUTPUT RULES:\n"
-                "- Output ONLY the summary text as plain prose.\n"
-                "- Do NOT include any reasoning, thinking, or meta commentary.\n"
-                "- Do NOT include any XML tags, <think> tags, "
-                "<reasoning> tags, or headers.\n"
-                "- Do NOT include phrases like 'The user wants' "
-                "or 'I need to'.\n"
-                "- Just the summary, nothing else.\n\n"
-                "Sources:\n"
-                + all_text
-            )
-
-            result = gl.nondet.exec_prompt(task)
-            cleaned = result.strip()
-
-            for tag in ("</think>", "</reasoning>", "</analysis>"):
-                if tag in cleaned:
-                    cleaned = cleaned.split(tag, 1)[-1].strip()
-
-            for bad_prefix in ("<think>", "<reasoning>", "<analysis>"):
-                if cleaned.startswith(bad_prefix):
-                    cleaned = cleaned.split(">", 1)[-1].strip()
-
-            return cleaned
-
-        summary = gl.eq_principle.prompt_non_comparative(
-            fetch_and_summarize,
-            task="Summarize economic sources",
-            criteria=(
-                "Must return a non-empty plain-text summary focused on "
-                "economic signals. Must not contain XML tags, reasoning "
-                "tags, or meta commentary."
-            ),
-        )
-
-        if not summary.strip():
-            raise gl.vm.UserError("NO_DATA_FETCHED")
-
-        self.observation_counter = self.observation_counter + u256(1)
-        obs_id = self.observation_counter
-
-        obs = Observation(
-            observation_id=obs_id,
-            source_urls=json.dumps(urls),
-            source_hash=self._source_hash(urls),
-            fetched_at=u256(self._now()),
-            summary=summary,
-        )
-
-        self.observations[obs_id] = obs
-        return obs_id
-
-
-    @gl.public.write.payable
-    def propose_policy(
-        self,
-        observation_id: u256,
-        direction: str,
-    ) -> u256:
-        if self.global_state != "OBSERVING":
-            raise gl.vm.UserError("INVALID_STATE")
-
-        now = self._now()
-
-        if now - int(self.last_policy_timestamp) < int(
-            self.cooldown_seconds
-        ):
-            raise gl.vm.UserError("COOLDOWN_ACTIVE")
-
-        if observation_id not in self.observations:
-            raise gl.vm.UserError("NO_OBSERVATION")
-
-        obs = self.observations[observation_id]
-
-        if now - int(obs.fetched_at) > int(self.freshness_seconds):
-            raise gl.vm.UserError("STALE_OBSERVATION")
-
-        required_bond = self._current_min_bond()
-        bond_received = int(gl.message.value)
-
-        if bond_received < required_bond:
-            raise gl.vm.UserError("BOND_TOO_LOW")
-
-        key, value_milli = self._parse_direction(direction)
-        self._check_bounds(key, value_milli)
-
-        sender = gl.message.sender_address
-
-        self.proposal_counter = self.proposal_counter + u256(1)
-        prop_id = self.proposal_counter
-
-        prop = Proposal(
-            proposal_id=prop_id,
-            proposer=sender,
-            observation_id=observation_id,
-            direction=direction,
-            bond=u256(bond_received),
-            created_at=u256(now),
-            state="PROPOSED",
-            verdict="",
-            rationale="",
-        )
-
-        self.proposals[prop_id] = prop
-        self.global_state = "POLICY_PROPOSED"
-
-        return prop_id
-
-
-    @gl.public.write
-    def cancel_proposal(self, proposal_id: u256) -> None:
-        if self.global_state != "POLICY_PROPOSED":
-            raise gl.vm.UserError("INVALID_STATE")
-
-        if proposal_id not in self.proposals:
-            raise gl.vm.UserError("NO_PROPOSAL")
-
-        prop = self.proposals[proposal_id]
-
-        if prop.proposer != gl.message.sender_address:
-            raise gl.vm.UserError("NOT_PROPOSER")
-
-        if prop.state != "PROPOSED":
-            raise gl.vm.UserError("ALREADY_RESOLVED")
-
-        _EVMRecipient(prop.proposer).emit_transfer(
-            value=prop.bond,
-            on="finalized",
-        )
-
-        prop.state = "CANCELLED"
-        prop.bond = u256(0)
-
-        self.proposals[proposal_id] = prop
-        self.global_state = "OBSERVING"
-
-
-    @gl.public.write
-    def evaluate_policy(self, proposal_id: u256) -> None:
-        if self.global_state != "POLICY_PROPOSED":
-            raise gl.vm.UserError("INVALID_STATE")
-
-        if proposal_id not in self.proposals:
-            raise gl.vm.UserError("NO_PROPOSAL")
-
-        prop = self.proposals[proposal_id]
-
-        if prop.state != "PROPOSED":
-            raise gl.vm.UserError("ALREADY_EVALUATED")
-
-        obs = self.observations[prop.observation_id]
-        summary = obs.summary
-        direction = prop.direction
-
-        if not summary.strip():
-            prop.state = "INCONCLUSIVE"
-            prop.verdict = "INCONCLUSIVE"
-            prop.rationale = "Observation summary is empty."
-
-            self.proposals[proposal_id] = prop
-            self.global_state = "CONSENSUS_FAILED"
-            return
-
-        self.global_state = "CONSENSUS_PENDING"
-        prop.state = "EVALUATING"
-        self.proposals[proposal_id] = prop
+        if not all_text.strip():
+            return ""
 
         task = (
-            "You are a monetary policy signal evaluator. "
-            "Your only job is to determine whether a proposed policy "
-            "direction is CONSISTENT with the economic signals in "
-            "the observation summary.\n\n"
-            "Observation summary:\n"
-            + summary
-            + "\n\n"
-            "Proposed policy direction:\n"
-            + direction
-            + "\n\n"
-            "Follow these steps exactly:\n\n"
-            "STEP 1 - Identify the dominant economic signal in the observation:\n"
-            "- HAWKISH: The text mentions inflation rising, prices increasing, "
-            "central banks raising rates, tightening, or overheating.\n"
-            "- DOVISH: The text mentions inflation falling, recession risk, "
-            "weak demand, central banks cutting rates, or easing.\n"
-            "- NEUTRAL: No clear directional signal.\n\n"
-            "STEP 2 - Classify the proposed policy direction:\n"
-            "- TIGHTENING: set_interest_rate (any value), "
-            "set_collateral_ratio above 150, "
-            "set_supply_adjustment below 0.\n"
-            "- EASING: set_collateral_ratio below 150, "
-            "set_supply_adjustment above 0.\n\n"
-            "STEP 3 - Compare:\n"
-            "- HAWKISH + TIGHTENING = ACCEPTED\n"
-            "- DOVISH + EASING = ACCEPTED\n"
-            "- HAWKISH + EASING = REJECTED\n"
-            "- DOVISH + TIGHTENING = REJECTED\n"
-            "- NEUTRAL = INCONCLUSIVE\n\n"
+            "Summarize the following sources in 3-5 sentences. "
+            "Focus on economic signals relevant to monetary policy. "
+            "If the sources describe inflation rising, prices increasing, "
+            "or central banks tightening, emphasize that. "
+            "If the sources describe inflation falling, recession risk, "
+            "or central banks easing, emphasize that.\n\n"
             "CRITICAL OUTPUT RULES:\n"
-            "- Output valid JSON ONLY.\n"
-            "- No reasoning tags, no <think> tags, "
-            "no commentary outside JSON.\n"
-            "- Format: "
-            '{"verdict": "ACCEPTED" or "REJECTED" or "INCONCLUSIVE", '
-            '"rationale": "One sentence explaining the signal and match."}'
+            "- Output ONLY the summary text as plain prose.\n"
+            "- Do NOT include any reasoning, thinking, or meta commentary.\n"
+            "- Do NOT include any XML tags, <think> tags, "
+            "<reasoning> tags, or headers.\n"
+            "- Do NOT include phrases like 'The user wants' "
+            "or 'I need to'.\n"
+            "- Just the summary, nothing else.\n\n"
+            "Sources:\n"
+            + all_text
         )
 
-        def leader_fn() -> dict:
-            result = gl.nondet.exec_prompt(
-                task,
-                response_format="json",
-            )
-            return result
+        result = gl.nondet.exec_prompt(task)
+        cleaned = result.strip()
 
-        def validator_fn(leader_result) -> bool:
-            if not isinstance(leader_result, gl.vm.Return):
-                return False
+        for tag in ("</think>", "</reasoning>", "</analysis>"):
+            if tag in cleaned:
+                cleaned = cleaned.split(tag, 1)[-1].strip()
 
-            data = leader_result.calldata
+        for bad_prefix in ("<think>", "<reasoning>", "<analysis>"):
+            if cleaned.startswith(bad_prefix):
+                cleaned = cleaned.split(">", 1)[-1].strip()
 
-            if not isinstance(data, dict):
-                return False
+        return cleaned
 
-            verdict = data.get("verdict", "")
+    summary = gl.eq_principle.prompt_non_comparative(
+        fetch_and_summarize,
+        task="Summarize economic sources",
+        criteria=(
+            "Must return a non-empty plain-text summary focused on "
+            "economic signals. Must not contain XML tags, reasoning "
+            "tags, or meta commentary."
+        ),
+    )
 
-            if verdict not in (
-                "ACCEPTED",
-                "REJECTED",
-                "INCONCLUSIVE",
-            ):
-                return False
+    if not summary.strip():
+        raise gl.vm.UserError("NO_DATA_FETCHED")
 
-            rationale = data.get("rationale", "")
+    self.observation_counter = self.observation_counter + u256(1)
+    obs_id = self.observation_counter
 
-            if not isinstance(rationale, str):
-                return False
+    obs = Observation(
+        observation_id=obs_id,
+        source_urls=json.dumps(urls),
+        source_hash=self._source_hash(urls),
+        fetched_at=u256(self._now()),
+        summary=summary,
+    )
 
-            if len(rationale.strip()) == 0:
-                return False
+    self.observations[obs_id] = obs
+    return obs_id
 
-            return True
+@gl.public.write.payable
+def propose_policy(
+    self,
+    observation_id: u256,
+    direction: str,
+) -> u256:
+    if self.global_state != "OBSERVING":
+        raise gl.vm.UserError("INVALID_STATE")
 
-        result = gl.vm.run_nondet_unsafe(
-            leader_fn,
-            validator_fn,
-        )
+    now = self._now()
 
-        verdict = result["verdict"]
-        rationale = result["rationale"]
+    if now - int(self.last_policy_timestamp) < int(
+        self.cooldown_seconds
+    ):
+        raise gl.vm.UserError("COOLDOWN_ACTIVE")
 
-        prop = self.proposals[proposal_id]
-        prop.verdict = verdict
-        prop.rationale = rationale
+    if observation_id not in self.observations:
+        raise gl.vm.UserError("NO_OBSERVATION")
 
-        if verdict == "ACCEPTED":
-            prop.state = "ACCEPTED"
-            self.global_state = "CONSENSUS_REACHED"
-        else:
-            prop.state = verdict
-            self.global_state = "CONSENSUS_FAILED"
+    obs = self.observations[observation_id]
+
+    if now - int(obs.fetched_at) > int(self.freshness_seconds):
+        raise gl.vm.UserError("STALE_OBSERVATION")
+
+    required_bond = self._current_min_bond()
+    bond_received = int(gl.message.value)
+
+    if bond_received < required_bond:
+        raise gl.vm.UserError("BOND_TOO_LOW")
+
+    key, value_milli = self._parse_direction(direction)
+    self._check_bounds(key, value_milli)
+
+    sender = gl.message.sender_address
+
+    self.proposal_counter = self.proposal_counter + u256(1)
+    prop_id = self.proposal_counter
+
+    prop = Proposal(
+        proposal_id=prop_id,
+        proposer=sender,
+        observation_id=observation_id,
+        direction=direction,
+        bond=u256(bond_received),
+        created_at=u256(now),
+        state="PROPOSED",
+        verdict="",
+        rationale="",
+    )
+
+    self.proposals[prop_id] = prop
+    self.global_state = "POLICY_PROPOSED"
+
+    return prop_id
+
+@gl.public.write
+def cancel_proposal(self, proposal_id: u256) -> None:
+    if self.global_state != "POLICY_PROPOSED":
+        raise gl.vm.UserError("INVALID_STATE")
+
+    if proposal_id not in self.proposals:
+        raise gl.vm.UserError("NO_PROPOSAL")
+
+    prop = self.proposals[proposal_id]
+
+    if prop.proposer != gl.message.sender_address:
+        raise gl.vm.UserError("NOT_PROPOSER")
+
+    if prop.state != "PROPOSED":
+        raise gl.vm.UserError("ALREADY_RESOLVED")
+
+    _EVMRecipient(prop.proposer).emit_transfer(
+        value=prop.bond,
+        on="finalized",
+    )
+
+    prop.state = "CANCELLED"
+    prop.bond = u256(0)
+
+    self.proposals[proposal_id] = prop
+    self.global_state = "OBSERVING"
+
+@gl.public.write
+def evaluate_policy(self, proposal_id: u256) -> None:
+    if self.global_state != "POLICY_PROPOSED":
+        raise gl.vm.UserError("INVALID_STATE")
+
+    if proposal_id not in self.proposals:
+        raise gl.vm.UserError("NO_PROPOSAL")
+
+    prop = self.proposals[proposal_id]
+
+    if prop.state != "PROPOSED":
+        raise gl.vm.UserError("ALREADY_EVALUATED")
+
+    obs = self.observations[prop.observation_id]
+    summary = obs.summary
+    direction = prop.direction
+
+    if not summary.strip():
+        prop.state = "INCONCLUSIVE"
+        prop.verdict = "INCONCLUSIVE"
+        prop.rationale = "Observation summary is empty."
 
         self.proposals[proposal_id] = prop
+        self.global_state = "CONSENSUS_FAILED"
+        return
 
+    self.global_state = "CONSENSUS_PENDING"
+    prop.state = "EVALUATING"
+    self.proposals[proposal_id] = prop
 
-    @gl.public.write
-    def execute_policy(self, proposal_id: u256) -> None:
-        if self.global_state != "CONSENSUS_REACHED":
-            raise gl.vm.UserError("INVALID_STATE")
+    task = (
+        "You are a monetary policy signal evaluator. "
+        "Your only job is to determine whether a proposed policy "
+        "direction is CONSISTENT with the economic signals in "
+        "the observation summary.\n\n"
+        "Observation summary:\n"
+        + summary
+        + "\n\n"
+        "Proposed policy direction:\n"
+        + direction
+        + "\n\n"
+        "Follow these steps exactly:\n\n"
+        "STEP 1 - Identify the dominant economic signal in the observation:\n"
+        "- HAWKISH: The text mentions inflation rising, prices increasing, "
+        "central banks raising rates, tightening, or overheating.\n"
+        "- DOVISH: The text mentions inflation falling, recession risk, "
+        "weak demand, central banks cutting rates, or easing.\n"
+        "- NEUTRAL: No clear directional signal.\n\n"
+        "STEP 2 - Classify the proposed policy direction:\n"
+        "- TIGHTENING: set_interest_rate (any value), "
+        "set_collateral_ratio above 150, "
+        "set_supply_adjustment below 0.\n"
+        "- EASING: set_collateral_ratio below 150, "
+        "set_supply_adjustment above 0.\n\n"
+        "STEP 3 - Compare:\n"
+        "- HAWKISH + TIGHTENING = ACCEPTED\n"
+        "- DOVISH + EASING = ACCEPTED\n"
+        "- HAWKISH + EASING = REJECTED\n"
+        "- DOVISH + TIGHTENING = REJECTED\n"
+        "- NEUTRAL = INCONCLUSIVE\n\n"
+        "CRITICAL OUTPUT RULES:\n"
+        "- Output valid JSON ONLY.\n"
+        "- No reasoning tags, no <think> tags, "
+        "no commentary outside JSON.\n"
+        "- Format: "
+        '{"verdict": "ACCEPTED" or "REJECTED" or "INCONCLUSIVE", '
+        '"rationale": "One sentence explaining the signal and match."}'
+    )
 
-        if proposal_id not in self.proposals:
-            raise gl.vm.UserError("NO_PROPOSAL")
-
-        prop = self.proposals[proposal_id]
-
-        if prop.state != "ACCEPTED":
-            raise gl.vm.UserError("NOT_ACCEPTED")
-
-        now = self._now()
-
-        self.active_direction = prop.direction
-        self.active_observation_id = prop.observation_id
-        self.active_executed_at = u256(now)
-        self.generation = self.generation + u256(1)
-        self.last_policy_timestamp = u256(now)
-
-        entry = HistoryEntry(
-            proposal_id=proposal_id,
-            direction=prop.direction,
-            verdict=prop.verdict,
-            rationale=prop.rationale,
-            evaluated_at=u256(now),
+    def leader_fn() -> dict:
+        result = gl.nondet.exec_prompt(
+            task,
+            response_format="json",
         )
+        return result
 
-        self.history[proposal_id] = entry
+    def validator_fn(leader_result) -> bool:
+        if not isinstance(leader_result, gl.vm.Return):
+            return False
 
+        data = leader_result.calldata
+
+        if not isinstance(data, dict):
+            return False
+
+        verdict = data.get("verdict", "")
+
+        if verdict not in (
+            "ACCEPTED",
+            "REJECTED",
+            "INCONCLUSIVE",
+        ):
+            return False
+
+        rationale = data.get("rationale", "")
+
+        if not isinstance(rationale, str):
+            return False
+
+        if len(rationale.strip()) == 0:
+            return False
+
+        return True
+
+    result = gl.vm.run_nondet_unsafe(
+        leader_fn,
+        validator_fn,
+    )
+
+    verdict = result["verdict"]
+    rationale = result["rationale"]
+
+    prop = self.proposals[proposal_id]
+    prop.verdict = verdict
+    prop.rationale = rationale
+
+    if verdict == "ACCEPTED":
+        prop.state = "ACCEPTED"
+        self.global_state = "CONSENSUS_REACHED"
+    else:
+        prop.state = verdict
+        self.global_state = "CONSENSUS_FAILED"
+
+    self.proposals[proposal_id] = prop
+
+@gl.public.write
+def execute_policy(self, proposal_id: u256) -> None:
+    if self.global_state != "CONSENSUS_REACHED":
+        raise gl.vm.UserError("INVALID_STATE")
+
+    if proposal_id not in self.proposals:
+        raise gl.vm.UserError("NO_PROPOSAL")
+
+    prop = self.proposals[proposal_id]
+
+    if prop.state != "ACCEPTED":
+        raise gl.vm.UserError("NOT_ACCEPTED")
+
+    now = self._now()
+
+    self.active_direction = prop.direction
+    self.active_observation_id = prop.observation_id
+    self.active_executed_at = u256(now)
+    self.generation = self.generation + u256(1)
+    self.last_policy_timestamp = u256(now)
+
+    entry = HistoryEntry(
+        proposal_id=proposal_id,
+        direction=prop.direction,
+        verdict=prop.verdict,
+        rationale=prop.rationale,
+        evaluated_at=u256(now),
+    )
+
+    self.history[proposal_id] = entry
+
+    _EVMRecipient(prop.proposer).emit_transfer(
+        value=prop.bond,
+        on="finalized",
+    )
+
+    prop.state = "EXECUTED"
+    prop.bond = u256(0)
+
+    self.proposals[proposal_id] = prop
+    self.global_state = "OBSERVING"
+
+@gl.public.write
+def finalize_failed(self, proposal_id: u256) -> None:
+    if self.global_state != "CONSENSUS_FAILED":
+        raise gl.vm.UserError("INVALID_STATE")
+
+    if proposal_id not in self.proposals:
+        raise gl.vm.UserError("NO_PROPOSAL")
+
+    prop = self.proposals[proposal_id]
+
+    if prop.state not in ("REJECTED", "INCONCLUSIVE"):
+        raise gl.vm.UserError("NOT_FAILED")
+
+    now = self._now()
+
+    entry = HistoryEntry(
+        proposal_id=proposal_id,
+        direction=prop.direction,
+        verdict=prop.verdict,
+        rationale=prop.rationale,
+        evaluated_at=u256(now),
+    )
+
+    self.history[proposal_id] = entry
+
+    if prop.verdict == "INCONCLUSIVE":
         _EVMRecipient(prop.proposer).emit_transfer(
             value=prop.bond,
             on="finalized",
         )
-
-        prop.state = "EXECUTED"
-        prop.bond = u256(0)
-
-        self.proposals[proposal_id] = prop
-        self.global_state = "OBSERVING"
-
-
-    @gl.public.write
-    def finalize_failed(self, proposal_id: u256) -> None:
-        if self.global_state != "CONSENSUS_FAILED":
-            raise gl.vm.UserError("INVALID_STATE")
-
-        if proposal_id not in self.proposals:
-            raise gl.vm.UserError("NO_PROPOSAL")
-
-        prop = self.proposals[proposal_id]
-
-        if prop.state not in ("REJECTED", "INCONCLUSIVE"):
-            raise gl.vm.UserError("NOT_FAILED")
-
-        now = self._now()
-
-        entry = HistoryEntry(
-            proposal_id=proposal_id,
-            direction=prop.direction,
-            verdict=prop.verdict,
-            rationale=prop.rationale,
-            evaluated_at=u256(now),
+    else:
+        _EVMRecipient(self.admin).emit_transfer(
+            value=prop.bond,
+            on="finalized",
         )
 
-        self.history[proposal_id] = entry
+    self.last_policy_timestamp = u256(now)
 
-        if prop.verdict == "INCONCLUSIVE":
-            _EVMRecipient(prop.proposer).emit_transfer(
-                value=prop.bond,
-                on="finalized",
-            )
-        else:
-            _EVMRecipient(self.admin).emit_transfer(
-                value=prop.bond,
-                on="finalized",
-            )
+    prop.state = "FINALIZED_FAILED"
+    prop.bond = u256(0)
 
-        self.last_policy_timestamp = u256(now)
+    self.proposals[proposal_id] = prop
+    self.global_state = "OBSERVING"
 
-        prop.state = "FINALIZED_FAILED"
-        prop.bond = u256(0)
+@gl.public.view
+def get_global_state(self) -> str:
+    return self.global_state
 
-        self.proposals[proposal_id] = prop
-        self.global_state = "OBSERVING"
+@gl.public.view
+def get_active_policy(self) -> dict:
+    return {
+        "direction": self.active_direction,
+        "based_on_observation": int(self.active_observation_id),
+        "executed_at": int(self.active_executed_at),
+        "generation": int(self.generation),
+    }
 
+@gl.public.view
+def get_proposal(self, proposal_id: u256) -> dict:
+    if proposal_id not in self.proposals:
+        raise gl.vm.UserError("NO_PROPOSAL")
 
-    @gl.public.view
-    def get_global_state(self) -> str:
-        return self.global_state
+    prop = self.proposals[proposal_id]
 
+    return {
+        "proposal_id": int(prop.proposal_id),
+        "proposer": prop.proposer.as_hex,
+        "observation_id": int(prop.observation_id),
+        "direction": prop.direction,
+        "bond": int(prop.bond),
+        "created_at": int(prop.created_at),
+        "state": prop.state,
+        "verdict": prop.verdict,
+        "rationale": prop.rationale,
+    }
 
-    @gl.public.view
-    def get_active_policy(self) -> dict:
-        return {
-            "direction": self.active_direction,
-            "based_on_observation": int(self.active_observation_id),
-            "executed_at": int(self.active_executed_at),
-            "generation": int(self.generation),
-        }
+@gl.public.view
+def get_proposal_count(self) -> int:
+    return int(self.proposal_counter)
 
+@gl.public.view
+def get_history(self, offset: u256, limit: u256) -> list:
+    result = []
+    start = max(1, int(offset))
+    end = min(
+        int(self.proposal_counter),
+        start + int(limit) - 1,
+    )
 
-    @gl.public.view
-    def get_proposal(self, proposal_id: u256) -> dict:
-        if proposal_id not in self.proposals:
-            raise gl.vm.UserError("NO_PROPOSAL")
+    for i in range(start, end + 1):
+        if u256(i) in self.history:
+            entry = self.history[u256(i)]
+            result.append({
+                "proposal_id": int(entry.proposal_id),
+                "direction": entry.direction,
+                "verdict": entry.verdict,
+                "rationale": entry.rationale,
+                "evaluated_at": int(entry.evaluated_at),
+            })
 
-        prop = self.proposals[proposal_id]
+    return result
 
-        return {
-            "proposal_id": int(prop.proposal_id),
-            "proposer": prop.proposer.as_hex,
-            "observation_id": int(prop.observation_id),
-            "direction": prop.direction,
-            "bond": int(prop.bond),
-            "created_at": int(prop.created_at),
-            "state": prop.state,
-            "verdict": prop.verdict,
-            "rationale": prop.rationale,
-        }
+@gl.public.view
+def get_observation(self, observation_id: u256) -> dict:
+    if observation_id not in self.observations:
+        raise gl.vm.UserError("NO_OBSERVATION")
 
+    obs = self.observations[observation_id]
 
-    @gl.public.view
-    def get_proposal_count(self) -> int:
-        return int(self.proposal_counter)
+    return {
+        "observation_id": int(obs.observation_id),
+        "source_urls": obs.source_urls,
+        "source_hash": obs.source_hash,
+        "fetched_at": int(obs.fetched_at),
+        "summary": obs.summary,
+    }
 
+@gl.public.view
+def get_latest_observation(self) -> dict:
+    if int(self.observation_counter) == 0:
+        raise gl.vm.UserError("NO_OBSERVATION")
 
-    @gl.public.view
-    def get_history(self, offset: u256, limit: u256) -> list:
-        result = []
+    return self.get_observation(self.observation_counter)
 
-        start = max(1, int(offset))
-        end = min(
-            int(self.proposal_counter),
-            start + int(limit) - 1,
-        )
+@gl.public.view
+def get_bounds(self) -> dict:
+    return {
+        "interest_min": int(self.interest_min),
+        "interest_max": int(self.interest_max),
+        "collateral_min": int(self.collateral_min),
+        "collateral_max": int(self.collateral_max),
+        "supply_min": int(self.supply_min),
+        "supply_max": int(self.supply_max),
+    }
 
-        for i in range(start, end + 1):
-            if u256(i) in self.history:
-                entry = self.history[u256(i)]
+@gl.public.view
+def get_bond_requirements(self) -> dict:
+    return {
+        "base_min_bond_wei": int(self.base_min_bond),
+        "current_min_bond_wei": self._current_min_bond(),
+        "proposal_count": int(self.proposal_counter),
+    }
 
-                result.append({
-                    "proposal_id": int(entry.proposal_id),
-                    "direction": entry.direction,
-                    "verdict": entry.verdict,
-                    "rationale": entry.rationale,
-                    "evaluated_at": int(entry.evaluated_at),
-                })
+@gl.public.view
+def is_domain_trusted(self, domain: str) -> bool:
+    dh = self._domain_hash(domain)
+    return self.trusted_domains_hash[dh]
 
-        return result
+@gl.public.view
+def get_enforce_allowlist(self) -> bool:
+    return self.enforce_allowlist
 
-
-    @gl.public.view
-    def get_observation(self, observation_id: u256) -> dict:
-        if observation_id not in self.observations:
-            raise gl.vm.UserError("NO_OBSERVATION")
-
-        obs = self.observations[observation_id]
-
-        return {
-            "observation_id": int(obs.observation_id),
-            "source_urls": obs.source_urls,
-            "source_hash": obs.source_hash,
-            "fetched_at": int(obs.fetched_at),
-            "summary": obs.summary,
-        }
-
-
-    @gl.public.view
-    def get_latest_observation(self) -> dict:
-        if int(self.observation_counter) == 0:
-            raise gl.vm.UserError("NO_OBSERVATION")
-
-        return self.get_observation(self.observation_counter)
-
-
-    @gl.public.view
-    def get_bounds(self) -> dict:
-        return {
-            "interest_min": int(self.interest_min),
-            "interest_max": int(self.interest_max),
-            "collateral_min": int(self.collateral_min),
-            "collateral_max": int(self.collateral_max),
-            "supply_min": int(self.supply_min),
-            "supply_max": int(self.supply_max),
-        }
-
-
-    @gl.public.view
-    def get_bond_requirements(self) -> dict:
-        return {
-            "base_min_bond_wei": int(self.base_min_bond),
-            "current_min_bond_wei": self._current_min_bond(),
-            "proposal_count": int(self.proposal_counter),
-        }
+@gl.public.view
+def get_upgraders(self) -> list:
+    result = []
+    for i in range(len(self.upgraders)):
+        result.append(self.upgraders[i].as_hex)
+    return result
