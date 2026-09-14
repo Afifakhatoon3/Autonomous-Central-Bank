@@ -70,7 +70,9 @@ pytest tests/direct/ -v
 ## Lifecycle
 
 - observe() - Start the contract
+
 - pause() - Admin halt (stores state)
+
 - unpause() - Resume (restores previous state)
 
 ## Observation
