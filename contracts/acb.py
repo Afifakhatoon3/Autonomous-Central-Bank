@@ -192,17 +192,39 @@ class AutonomousCentralBank(gl.Contract):
                 "If the sources describe inflation rising, prices increasing, "
                 "or central banks tightening, emphasize that. "
                 "If the sources describe inflation falling, recession risk, "
-                "or central banks easing, emphasize that. "
-                "Respond with only the summary text.\n\nSources:\n" + all_text
+                "or central banks easing, emphasize that.\n\n"
+                "CRITICAL OUTPUT RULES:\n"
+                "- Output ONLY the summary text as plain prose.\n"
+                "- Do NOT include any reasoning, thinking, or meta commentary.\n"
+                "- Do NOT include any XML tags, <think> tags, <reasoning> tags, "
+                "or headers.\n"
+                "- Do NOT include phrases like 'The user wants' or 'I need to'.\n"
+                "- Just the summary, nothing else.\n\n"
+                "Sources:\n" + all_text
             )
             result = gl.nondet.exec_prompt(task)
-            return result.strip()
+            cleaned = result.strip()
+            # Strip any leaked reasoning tags defensively
+            for tag in ("</think>", "</reasoning>", "</analysis>"):
+                if tag in cleaned:
+                    cleaned = cleaned.split(tag, 1)[-1].strip()
+            for bad_prefix in ("<think>", "<reasoning>", "<analysis>"):
+                if cleaned.startswith(bad_prefix):
+                    cleaned = cleaned.split(">", 1)[-1].strip()
+            return cleaned
 
         summary = gl.eq_principle.prompt_non_comparative(
             fetch_and_summarize,
             task="Summarize economic sources",
-            criteria="Must return a non-empty text summary focused on economic signals",
+            criteria=(
+                "Must return a non-empty plain-text summary focused on "
+                "economic signals. Must not contain XML tags, reasoning "
+                "tags, or meta commentary."
+            ),
         )
+
+        if not summary.strip():
+            raise gl.vm.UserError("NO_DATA_FETCHED")
 
         self.observation_counter = self.observation_counter + u256(1)
         obs_id = self.observation_counter
@@ -325,7 +347,10 @@ class AutonomousCentralBank(gl.Contract):
             "- HAWKISH + EASING = REJECTED\n"
             "- DOVISH + TIGHTENING = REJECTED\n"
             "- NEUTRAL = INCONCLUSIVE\n\n"
-            "Respond with valid JSON only: "
+            "CRITICAL OUTPUT RULES:\n"
+            "- Output valid JSON ONLY.\n"
+            "- No reasoning tags, no <think> tags, no commentary outside JSON.\n"
+            "- Format: "
             '{"verdict": "ACCEPTED" or "REJECTED" or "INCONCLUSIVE", '
             '"rationale": "One sentence explaining the signal and match."}'
         )
@@ -464,9 +489,15 @@ class AutonomousCentralBank(gl.Contract):
         return self.proposals[proposal_id].state
 
     @gl.public.view
-    def get_history(self) -> list:
+    def get_proposal_count(self) -> int:
+        return int(self.proposal_counter)
+
+    @gl.public.view
+    def get_history(self, offset: u256, limit: u256) -> list:
         result = []
-        for i in range(1, int(self.proposal_counter) + 1):
+        start = max(1, int(offset))
+        end = min(int(self.proposal_counter), start + int(limit) - 1)
+        for i in range(start, end + 1):
             if u256(i) in self.history:
                 entry = self.history[u256(i)]
                 result.append({
