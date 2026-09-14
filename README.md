@@ -1,70 +1,162 @@
 # Autonomous Central Bank
 
-## Positioning
+## What This Is
 
-An autonomous monetary policy module that reads real-world data and
-proposes policy decisions via GenLayer's AI consensus.
+An autonomous monetary policy engine built on GenLayer. It reads real-world data, proposes policy changes, and executes them through AI consensus — without any human vote.
 
 **This is a policy engine, not a stablecoin issuer.**
 
-## The Problem
-
-Stablecoins manage over $150B in value. Their monetary policy — interest
-rates, collateral ratios, supply adjustments — is still controlled by
-centralized teams (Circle, Tether) or slow governance votes (MakerDAO).
-This creates three problems:
-
-1. **Centralized control** — a single team can freeze funds, change
-   policy overnight, or be coerced by regulators.
-2. **Slow reaction** — when markets move, policy takes days or weeks
-   to adjust. By then, the damage is done.
-3. **Opaque decisions** — users cannot verify why a policy changed.
-
-## The Solution
-
-An autonomous monetary policy engine that:
-
-- Reads real-world data (news, economic indicators, on-chain metrics)
-  directly from the internet
-- Uses LLM validators to reach consensus on what the data means
-- Proposes and executes policy changes without any human vote
-- Stores every decision on-chain with a full audit trail
-
-The engine does not issue a token. It outputs policy decisions that any
-stablecoin, DAO, or DeFi protocol can consume.
-
-## Why GenLayer
-
-Normal smart contracts cannot do this. They only work with on-chain data
-and fixed rules. Monetary policy requires subjective judgment: "Is this
-news bullish or bearish? Is inflation rising? Should we tighten?"
-
-GenLayer is the first blockchain with an AI adjudication layer that can:
-
-- Fetch real-world data via the Intelligent Oracle
-- Reach consensus on subjective questions using multiple LLMs
-- Settle decisions on-chain without a third-party oracle
-
-This module is possible only on GenLayer.
-
-## What This Is Not
-
-- Not a stablecoin. No token is issued.
-- Not a governance system. There is no vote.
-- Not a trading bot. No funds are moved.
-- Not a price oracle. It reads news and data, not prices.
-
-## Who Uses This
-
-- Stablecoin protocols that want autonomous policy adjustment
-- DAOs that hold stablecoin treasuries
-- DeFi protocols that need to react to macro conditions
-- Agent platforms that need policy signals for autonomous agents
-
 ## Track
 
-GenLayer Agent Tank — Autonomous Protocols
+GenLayer Agent Tank - Autonomous Protocols
 
-## Status
+## Live Deployment
 
-Design phase. Contract not yet deployed.
+- Network: GenLayer Studionet
+- Contract address: `0x6bB1737270A9feBb70A0Bcd05a82D0C9b213A4bf`
+- Deploy TX: `0x4f06756b0bcf1dddabe1856ff5455e4b0b38c279f3dcd47979d84680c79d9677`
+- Deployed: Sep 14, 2026
+
+### Verified On-Chain
+
+All lifecycle paths tested on Studionet:
+
+- `observe()` → INIT to OBSERVING
+- `fetch_data()` → clean LLM summary, no reasoning tags
+- `propose_policy()` → policy proposed, bond locked
+- `evaluate_policy()` → GenLayer consensus verdict
+- **ACCEPTED case**: HAWKISH observation + TIGHTENING proposal
+- **REJECTED case**: HAWKISH observation + EASING proposal
+- `execute_policy()` → policy live, generation incremented
+- `finalize_failed()` → bond slashed on REJECTED
+- `pause()` / `unpause()` → admin halt with state restore
+
+## How It Works
+
+1. **Observe** - Anyone calls `observe()` to start the contract
+2. **Fetch data** - Anyone calls `fetch_data()` with HTTPS URLs
+3. **Propose** - Anyone calls `propose_policy()` with a direction
+4. **Evaluate** - Validators reach consensus on the verdict
+5. **Execute** - If accepted, the policy goes live
+
+## Quick Start
+
+### Install GenLayer CLI
+
+```bash
+npm install -g genlayer
+```
+
+## Set network
+
+```bash
+genlayer network set studionet
+```
+
+## Deploy
+
+```bash
+genlayer deploy --contract contracts/acb.py
+```
+
+## Run tests
+
+```bash
+pip install -r requirements.txt
+pytest tests/direct/ -v
+```
+
+## Contract API
+
+## Lifecycle
+
+· observe() - Start the contract
+· pause() - Admin halt (stores state)
+· unpause() - Resume (restores previous state)
+
+## Observation
+
+· fetch_data(sources) - Fetch and summarize URLs
+
+## Proposal
+
+· propose_policy(observation_id, direction, bond) — Create proposal
+· cancel_proposal(proposal_id) — Cancel before evaluation
+
+## Consensus
+
+· evaluate_policy(proposal_id) - Trigger AI consensus
+· execute_policy(proposal_id) - Write accepted policy
+· finalize_failed(proposal_id) - Clean up failed proposal
+
+Views
+
+· get_global_state() - Current lifecycle state
+· get_active_policy() - Live policy
+· get_proposal(proposal_id) - Full proposal record
+· get_proposal_count() - Total proposals
+· get_history(offset, limit) - Paginated history
+· get_observation(observation_id) - Specific observation
+· get_latest_observation() - Most recent observation
+· get_bounds() - Safety bounds
+· get_bond(address) - Bond balance for an address
+
+## Direction Format
+
+```
+set_interest_rate:<value>       # 0 to 20 (percent)
+set_collateral_ratio:<value>    # 100 to 200 (percent)
+set_supply_adjustment:<value>   # -5 to +5 (percent)
+```
+
+Values are in milli-percent. 2.5 means 2.5%.
+
+## Evaluation Logic
+
+The contract classifies economic signals and matches them against the proposed direction:
+
+· HAWKISH signal (inflation rising, rate hikes) + TIGHTENING proposal = ACCEPTED
+· DOVISH signal (inflation falling, recession risk) + EASING proposal = ACCEPTED
+· HAWKISH + EASING = REJECTED
+· DOVISH + TIGHTENING = REJECTED
+· NEUTRAL signal = INCONCLUSIVE
+
+## Documentation
+
+· docs/01-positioning.md - Problem and solution
+· docs/02-state-machine.md - States and transitions
+· docs/03-contract-methods.md - Full API reference
+· docs/04-data-flow.md - How data moves
+· docs/05-demo-scenarios.md - Demo walkthrough
+· docs/06-weaknesses-and-fixes.md - Honest audit
+
+## Verified Transactions
+
+Action TX Hash
+Deploy 0x4f06756b0bcf1dddabe1856ff5455e4b0b38c279f3dcd47979d84680c79d9677
+observe 0x7037a5f0709f3f132e70c1866341119b876540098728dac742683ffcd414438b
+fetch_data #1 0xda6c077ead17be479d6541ccd28b2e88ebbe89a016bb12339bf75e01b9ac8c82
+propose #1 0xa5367f45b00db54bea1530e83874087fd128d1fc4e851243a0f18294bea72c7d
+evaluate #1 → ACCEPTED 0x3d2b22bb2ffbe165c715b39d9a60945be2809075bfde640bd1801710b41e9251
+execute #1 0x7e1499a9563494abb3f83bb9893892746a4ae57bb75b243a1cb2fe7b8e98a9ee
+fetch_data #2 0x94641338ef2238473760b15fb4c5a8ac04021f4b1287237cbcef1c3d8ce0febd
+propose #2 0x40f2b0c0f4ce5847d956a07f72c39d304441c3f06f596dd31ea6a454b68dcc32
+evaluate #2 → REJECTED 0xcfd05017296a3b2cd47043b4d6caeaf5a089aaeba76c0ed1f9354b590504711c
+finalize_failed #2 0x65f47f10e24e44bb3470e9aa2a2d94d967766fa3f071fefbc7537bf57e19571b
+pause 0x4c0b82e31e1a010a582b5f8c7522c2fa066761547c649189c953bf5a99cc5c50
+unpause 0x0416cf72c1f440debbcd811eeb56a962d4b21ff66f84b81bafc38f4c8838f7e4
+
+## Limitations
+
+· No real money movement (simulated bond only)
+· Studionet only (no mainnet)
+· No upgrade path (MVP)
+· Some news sites block automated fetching (Reuters, Bloomberg)
+
+See docs/06-weaknesses-and-fixes.md for the full audit.
+
+License
+
+MIT
+
+```
