@@ -38,7 +38,7 @@ All lifecycle paths tested on Studionet:
 4. **Evaluate** - Validators reach consensus on the verdict
 5. **Execute** - If accepted, the policy goes live
 
-## Quick Start
+# Quick Start
 
 ### Install GenLayer CLI
 
@@ -46,26 +46,26 @@ All lifecycle paths tested on Studionet:
 npm install -g genlayer
 ```
 
-## Set network
+# Set network
 
 ```bash
 genlayer network set studionet
 ```
 
-## Deploy
+# Deploy
 
 ```bash
 genlayer deploy --contract contracts/acb.py
 ```
 
-## Run tests
+# Run tests
 
 ```bash
 pip install -r requirements.txt
 pytest tests/direct/ -v
 ```
 
-## Contract API
+# Contract API
 
 ## Lifecycle
 
@@ -113,7 +113,7 @@ pytest tests/direct/ -v
 
 - get_bond(address) - Bond balance for an address
 
-## Direction Format
+# Direction Format
 
 ```
 set_interest_rate:<value>       # 0 to 20 (percent)
@@ -123,7 +123,7 @@ set_supply_adjustment:<value>   # -5 to +5 (percent)
 
 Values are in milli-percent. 2.5 means 2.5%.
 
-## Evaluation Logic
+# Evaluation Logic
 
 The contract classifies economic signals and matches them against the proposed direction:
 
@@ -137,7 +137,7 @@ The contract classifies economic signals and matches them against the proposed d
 
 - NEUTRAL signal = INCONCLUSIVE
 
-## Documentation
+# Documentation
 
 - docs/01-positioning.md - Problem and solution
 
@@ -151,11 +151,11 @@ The contract classifies economic signals and matches them against the proposed d
 
 - docs/06-weaknesses-and-fixes.md - Honest audit
 
-## Verified Transactions
+# Verified Transactions
 
-All transactions verified on GenLayer Studionet Explorer.
+## All transactions verified on GenLayer Studionet Explorer.
 
-# Action Result Transaction
+### Action Result Transaction
 
 - Deploy contract SUCCESS: https://explorer-studio.genlayer.com/tx/0x4f06756b0bcf1dddabe1856ff5455e4b0b38c279f3dcd47979d84680c79d9677
 
@@ -181,7 +181,7 @@ All transactions verified on GenLayer Studionet Explorer.
 
 - unpause() SUCCESS: https://explorer-studio.genlayer.com/tx/0x0416cf72c1f440debbcd811eeb56a962d4b21ff66f84b81bafc38f4c8838f7e4
 
-## Limitations
+# Limitations
 
 - No real money movement (simulated bond only)
 - Studionet only (no mainnet)
@@ -190,6 +190,6 @@ All transactions verified on GenLayer Studionet Explorer.
 
 See docs/06-weaknesses-and-fixes.md for the full audit.
 
-## License
+# License
 
 MIT
