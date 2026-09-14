@@ -288,14 +288,20 @@ class AutonomousCentralBank(gl.Contract):
             "You are an autonomous monetary policy evaluator.\n\n"
             "Observation summary:\n" + summary + "\n\n"
             "Proposed policy: " + direction + "\n\n"
-            "Evaluate whether this proposed policy is appropriate. "
+            "Determine if the proposed policy DIRECTION is CONSISTENT "
+            "with the economic signals in the observation.\n"
             "Respond with valid JSON only: "
             '{"verdict": "ACCEPTED" or "REJECTED" or "INCONCLUSIVE", '
             '"rationale": "Brief explanation in one sentence"}\n\n'
             "Rules:\n"
-            "- ACCEPTED: The observation supports the policy and magnitude\n"
-            "- REJECTED: The observation contradicts the policy or magnitude is unreasonable\n"
-            "- INCONCLUSIVE: The observation is ambiguous or insufficient"
+            "- ACCEPTED: The direction (raise/lower/set) aligns with "
+            "signals in the observation. Magnitude is within configured "
+            "safety bounds.\n"
+            "- REJECTED: The direction contradicts the observation's "
+            "signals (e.g., proposing a rate hike when the observation "
+            "shows deflationary signals).\n"
+            "- INCONCLUSIVE: The observation has no clear economic "
+            "signal to evaluate against."
         )
 
         def leader_fn() -> dict:
