@@ -179,11 +179,20 @@ class AutonomousCentralBank(gl.Contract):
         def fetch_and_summarize() -> str:
             all_text = ""
             for url in urls:
-                text = gl.nondet.web.render(url, mode="text")
-                all_text += f"\n\n--- Source: {url} ---\n{text[:3000]}"
+                try:
+                    text = gl.nondet.web.render(url, mode="text")
+                    all_text += f"\n\n--- Source: {url} ---\n{text[:3000]}"
+                except Exception:
+                    pass
+            if not all_text.strip():
+                return ""
             task = (
                 "Summarize the following sources in 3-5 sentences. "
                 "Focus on economic signals relevant to monetary policy. "
+                "If the sources describe inflation rising, prices increasing, "
+                "or central banks tightening, emphasize that. "
+                "If the sources describe inflation falling, recession risk, "
+                "or central banks easing, emphasize that. "
                 "Respond with only the summary text.\n\nSources:\n" + all_text
             )
             result = gl.nondet.exec_prompt(task)
@@ -280,28 +289,45 @@ class AutonomousCentralBank(gl.Contract):
         summary = obs.summary
         direction = prop.direction
 
+        if not summary.strip():
+            prop.state = "INCONCLUSIVE"
+            prop.verdict = "INCONCLUSIVE"
+            prop.rationale = "Observation summary is empty."
+            self.proposals[proposal_id] = prop
+            self.global_state = "CONSENSUS_FAILED"
+            return
+
         self.global_state = "CONSENSUS_PENDING"
         prop.state = "EVALUATING"
         self.proposals[proposal_id] = prop
 
         task = (
-            "You are an autonomous monetary policy evaluator.\n\n"
+            "You are a monetary policy signal evaluator. "
+            "Your only job is to determine whether a proposed policy direction "
+            "is CONSISTENT with the economic signals in the observation summary.\n\n"
             "Observation summary:\n" + summary + "\n\n"
-            "Proposed policy: " + direction + "\n\n"
-            "Determine if the proposed policy DIRECTION is CONSISTENT "
-            "with the economic signals in the observation.\n"
+            "Proposed policy direction:\n" + direction + "\n\n"
+            "Follow these steps exactly:\n\n"
+            "STEP 1 - Identify the dominant economic signal in the observation:\n"
+            "- HAWKISH: The text mentions inflation rising, prices increasing, "
+            "central banks raising rates, tightening, or overheating.\n"
+            "- DOVISH: The text mentions inflation falling, recession risk, "
+            "weak demand, central banks cutting rates, or easing.\n"
+            "- NEUTRAL: No clear directional signal.\n\n"
+            "STEP 2 - Classify the proposed policy direction:\n"
+            "- TIGHTENING: set_interest_rate (any value), "
+            "set_collateral_ratio above 150, set_supply_adjustment below 0.\n"
+            "- EASING: set_collateral_ratio below 150, "
+            "set_supply_adjustment above 0.\n\n"
+            "STEP 3 - Compare:\n"
+            "- HAWKISH + TIGHTENING = ACCEPTED\n"
+            "- DOVISH + EASING = ACCEPTED\n"
+            "- HAWKISH + EASING = REJECTED\n"
+            "- DOVISH + TIGHTENING = REJECTED\n"
+            "- NEUTRAL = INCONCLUSIVE\n\n"
             "Respond with valid JSON only: "
             '{"verdict": "ACCEPTED" or "REJECTED" or "INCONCLUSIVE", '
-            '"rationale": "Brief explanation in one sentence"}\n\n'
-            "Rules:\n"
-            "- ACCEPTED: The direction (raise/lower/set) aligns with "
-            "signals in the observation. Magnitude is within configured "
-            "safety bounds.\n"
-            "- REJECTED: The direction contradicts the observation's "
-            "signals (e.g., proposing a rate hike when the observation "
-            "shows deflationary signals).\n"
-            "- INCONCLUSIVE: The observation has no clear economic "
-            "signal to evaluate against."
+            '"rationale": "One sentence explaining the signal and match."}'
         )
 
         def leader_fn() -> dict:
@@ -392,7 +418,7 @@ class AutonomousCentralBank(gl.Contract):
         self.history[proposal_id] = entry
 
         sender = prop.proposer
-        if prop.verdict == "INCONCLUSIVE":
+        if prop.verdict in ("INCONCLUSIVE", "REJECTED"):
             current_bond = int(self.bonds.get(sender, u256(0)))
             self.bonds[sender] = u256(current_bond - int(prop.bond))
 
