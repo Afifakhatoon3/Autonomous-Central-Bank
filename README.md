@@ -6,10 +6,6 @@ An autonomous monetary policy engine built on GenLayer. It reads real-world data
 
 **This is a policy engine, not a stablecoin issuer.**
 
-## Track
-
-GenLayer Agent Tank — Autonomous Protocols
-
 ## Live Deployment
 
 - Network: GenLayer Studionet
@@ -155,7 +151,7 @@ The contract classifies economic signals and matches them against the proposed d
 
 ## All transactions verified on GenLayer Studionet Explorer.
 
-### Action Result Transaction
+## Action Result Transaction
 
 - Deploy contract SUCCESS: https://explorer-studio.genlayer.com/tx/0x4f06756b0bcf1dddabe1856ff5455e4b0b38c279f3dcd47979d84680c79d9677
 
